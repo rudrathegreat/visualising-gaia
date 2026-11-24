@@ -41,7 +41,7 @@ The converter reports skipped rows with missing or invalid coordinates or nonpos
 
 ## Star colors
 
-The viewer maps `bp_rp` continuously from red at 0.7 through amber at 2.0 to blue at 3.3. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
+The viewer maps `bp_rp` continuously from red at 0.7 through amber at 1.3 to blue at 1.9. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
 
 ## Star brightness
 
@@ -51,4 +51,4 @@ The converter uses `phot_g_mean_mag` and the same parallax distance estimate to 
 M_G = phot_g_mean_mag − 5 × log10(d / 10)
 ```
 
-Lower absolute magnitudes produce brighter points. The viewer compresses the brightness range to keep faint points visible and uses a default brightness when G photometry is unavailable. Restart with `npm start` to regenerate an older `stars.bin` with magnitude data.
+Lower absolute magnitudes produce brighter points. Faint sources have a low brightness floor, and overlapping glows keep the strongest contribution per color channel to limit glare. The viewer uses a default brightness when G photometry is unavailable. Restart with `npm start` to regenerate an older `stars.bin` with magnitude data.

@@ -9,15 +9,15 @@ const reset = document.querySelector('#reset');
 
 const colorStops = [
   { value: 0.7, color: '#ff5a55' },
-  { value: 2.0, color: '#ffc158' },
-  { value: 3.3, color: '#639dff' },
+  { value: 1.3, color: '#ffc158' },
+  { value: 1.9, color: '#639dff' },
 ];
 
 function magnitudeBrightness(absoluteMagnitude) {
-  if (!Number.isFinite(absoluteMagnitude)) return 0.3;
+  if (!Number.isFinite(absoluteMagnitude)) return 0.02;
 
-  // Compress the luminosity range and keep faint stars visible.
-  return 0.12 + 0.88 / (1 + 10 ** ((absoluteMagnitude - 6) / 4));
+  // Keep faint stars visible up close without washing out dense regions.
+  return 0.002 + 0.998 / (1 + 10 ** ((absoluteMagnitude - 5) / 2.2));
 }
 
 function showBrightnessLegend(THREE) {
@@ -92,9 +92,11 @@ function createStarSprite(THREE) {
   const radius = canvas.width / 2;
   const glow = context.createRadialGradient(radius, radius, 0, radius, radius, radius);
   glow.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  glow.addColorStop(0.14, 'rgba(255, 255, 255, 0.85)');
-  glow.addColorStop(0.3, 'rgba(255, 255, 255, 0.18)');
-  glow.addColorStop(0.6, 'rgba(255, 255, 255, 0.035)');
+  // Keep the core compact and spread a low-opacity halo around it.
+  glow.addColorStop(0.09, 'rgba(255, 255, 255, 0.85)');
+  glow.addColorStop(0.2, 'rgba(255, 255, 255, 0.10)');
+  glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.045)');
+  glow.addColorStop(0.8, 'rgba(255, 255, 255, 0.012)');
   glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
   context.fillStyle = glow;
   context.fillRect(0, 0, canvas.width, canvas.height);
@@ -130,10 +132,13 @@ async function start() {
   const stars = new THREE.Points(geometry, new THREE.PointsMaterial({
     map: createStarSprite(THREE),
     vertexColors: true,
-    size: 7,
+    size: 11,
     sizeAttenuation: false,
     transparent: true,
-    blending: THREE.AdditiveBlending,
+    // Keep the strongest contribution per channel where star sprites overlap.
+    premultipliedAlpha: true,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.MaxEquation,
     depthWrite: false,
   }));
   const scene = new THREE.Scene();
