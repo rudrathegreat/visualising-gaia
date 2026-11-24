@@ -2,6 +2,7 @@ const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
 const catalogCount = document.querySelector('#catalog-count');
 const colorLegend = document.querySelector('#color-legend');
+const brightnessLegend = document.querySelector('#brightness-legend');
 const zoomOut = document.querySelector('#zoom-out');
 const zoomIn = document.querySelector('#zoom-in');
 const reset = document.querySelector('#reset');
@@ -17,6 +18,19 @@ function magnitudeBrightness(absoluteMagnitude) {
 
   // Compress the luminosity range and keep faint stars visible.
   return 0.12 + 0.88 / (1 + 10 ** ((absoluteMagnitude - 6) / 4));
+}
+
+function showBrightnessLegend(THREE) {
+  const sample = new THREE.Color();
+  const items = [-4, 0, 4, 8, 12, 16].map((magnitude) => {
+    const brightness = magnitudeBrightness(magnitude);
+    const item = document.createElement('li');
+    item.textContent = String(magnitude).replace('-', '−');
+    item.style.setProperty('--sample-color', sample.setRGB(brightness, brightness, brightness).getStyle());
+    return item;
+  });
+  brightnessLegend.querySelector('.brightness-samples').replaceChildren(...items);
+  brightnessLegend.hidden = false;
 }
 
 async function loadCatalog(THREE) {
@@ -68,7 +82,7 @@ async function loadCatalog(THREE) {
     interpolated.multiplyScalar(brightness).toArray(colors, i * 3);
   }
 
-  return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped };
+  return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped, hasMagnitude };
 }
 
 function createStarSprite(THREE) {
@@ -95,7 +109,7 @@ async function start() {
     throw new Error('Three.js could not load. Run npm install and reload.');
   });
 
-  const { position, color, count, skipped } = await loadCatalog(THREE);
+  const { position, color, count, skipped, hasMagnitude } = await loadCatalog(THREE);
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer();
@@ -188,6 +202,7 @@ async function start() {
     return label;
   }));
   colorLegend.hidden = false;
+  if (hasMagnitude) showBrightnessLegend(THREE);
   status.hidden = true;
   for (const button of [zoomIn, zoomOut, reset]) button.disabled = false;
 }

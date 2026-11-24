@@ -67,6 +67,37 @@ p {
 .color-labels span:last-child { text-align: right; }
 .missing-color { font-size: 0.75rem; }
 
+#brightness-legend { width: 14rem; margin-top: 1rem; }
+
+.brightness-samples {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.15rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: center;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.brightness-samples li::before {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin: 0 auto 0.15rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--sample-color) 20%, transparent 70%), #000;
+  content: '';
+}
+
+.brightness-endpoints {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
 #status {
   position: absolute;
   top: 50%;
