@@ -1,0 +1,10 @@
+{
+  "name": "visualising-gaia",
+  "private": true,
+  "scripts": {
+    "start": "python prepare_stars.py && python -m http.server 8000 --bind 127.0.0.1"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}

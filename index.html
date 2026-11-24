@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore the Gaia star catalog in three-dimensional Galactic coordinates.">
+  <title>Gaia Star Map</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="./viewer.js"></script>
+</head>
+<body>
+  <main>
+    <div id="viewport" tabindex="0" role="region" aria-label="3D star map" aria-describedby="navigation"></div>
+    <header class="catalog">
+      <h1>Gaia Star Map</h1>
+      <p>Heliocentric Galactic coordinates · Parsecs</p>
+      <p id="catalog-count" hidden></p>
+    </header>
+    <div id="status" role="status">Loading star catalog…</div>
+    <div class="navigation">
+      <p id="navigation">
+        <span>Drag to pan</span>
+        <span class="mouse-hint">Right-drag to orbit</span>
+        <span class="mouse-hint">Scroll to zoom</span>
+        <span class="touch-hint">Pinch to zoom</span>
+      </p>
+      <div class="buttons" role="group" aria-label="Camera controls">
+        <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out" disabled>−</button>
+        <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in" disabled>+</button>
+        <button id="reset" type="button" disabled>Reset view</button>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

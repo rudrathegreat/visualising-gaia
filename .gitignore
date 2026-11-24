@@ -1,1 +1,5 @@
 *.csv
+/node_modules/
+/.npm-cache/
+/.stars-*.tmp
+/stars.bin
