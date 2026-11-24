@@ -1,11 +1,18 @@
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
 const catalogCount = document.querySelector('#catalog-count');
+const colorLegend = document.querySelector('#color-legend');
 const zoomOut = document.querySelector('#zoom-out');
 const zoomIn = document.querySelector('#zoom-in');
 const reset = document.querySelector('#reset');
 
-async function loadPositions(THREE) {
+const colorStops = [
+  { value: 0.7, color: '#ff5a55' },
+  { value: 2.0, color: '#ffc158' },
+  { value: 3.3, color: '#639dff' },
+];
+
+async function loadCatalog(THREE) {
   const response = await fetch('./stars.bin');
   if (!response.ok) {
     throw new Error('Star data is unavailable. Run python prepare_stars.py and reload.');
@@ -20,12 +27,36 @@ async function loadPositions(THREE) {
   const header = new DataView(buffer);
   const count = header.getUint32(0, true);
   const skipped = header.getUint32(4, true);
-  if (!count || buffer.byteLength !== headerSize + count * 3 * Float32Array.BYTES_PER_ELEMENT) {
-    throw new Error('Star data is invalid. Run python prepare_stars.py again.');
+  const stride = 4; // X, Y, Z, BP–RP
+  if (!count || buffer.byteLength !== headerSize + count * stride * Float32Array.BYTES_PER_ELEMENT) {
+    throw new Error('Star data is outdated or invalid. Run python prepare_stars.py again.');
   }
 
-  const positions = new Float32Array(buffer, headerSize);
-  return { attribute: new THREE.BufferAttribute(positions, 3), count, skipped };
+  const records = new Float32Array(buffer, headerSize);
+  const data = new THREE.InterleavedBuffer(records, stride);
+  const position = new THREE.InterleavedBufferAttribute(data, 3, 0);
+  const colors = new Float32Array(count * 3);
+  const [red, amber, blue] = colorStops.map(({ value, color }) => ({
+    value,
+    rgb: new THREE.Color().setStyle(color, THREE.LinearSRGBColorSpace),
+  }));
+  const gray = new THREE.Color('#9aa3b2');
+  const interpolated = new THREE.Color();
+
+  for (let i = 0; i < count; i++) {
+    const bpRp = records[i * stride + 3];
+    if (!Number.isFinite(bpRp)) {
+      gray.toArray(colors, i * 3);
+      continue;
+    }
+    const belowMiddle = bpRp < amber.value;
+    const start = belowMiddle ? red : amber;
+    const end = belowMiddle ? amber : blue;
+    const fraction = THREE.MathUtils.clamp((bpRp - start.value) / (end.value - start.value), 0, 1);
+    interpolated.copy(start.rgb).lerp(end.rgb, fraction).convertSRGBToLinear().toArray(colors, i * 3);
+  }
+
+  return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped };
 }
 
 async function start() {
@@ -36,7 +67,7 @@ async function start() {
     throw new Error('Three.js could not load. Run npm install and reload.');
   });
 
-  const { attribute, count, skipped } = await loadPositions(THREE);
+  const { position, color, count, skipped } = await loadCatalog(THREE);
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer();
@@ -47,20 +78,17 @@ async function start() {
   viewport.append(renderer.domElement);
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', attribute);
+  geometry.setAttribute('position', position);
+  geometry.setAttribute('color', color);
   geometry.computeBoundingSphere();
   const origin = new THREE.Vector3();
   const { center, radius } = geometry.boundingSphere;
   const extent = Math.max(1, center.length() + radius);
 
   const stars = new THREE.Points(geometry, new THREE.PointsMaterial({
-    color: 0x95bbff,
+    vertexColors: true,
     size: 1.45,
     sizeAttenuation: false,
-    transparent: true,
-    opacity: 0.25,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
   }));
   const scene = new THREE.Scene();
   scene.add(stars);
@@ -118,6 +146,16 @@ async function start() {
   catalogCount.textContent = `${count.toLocaleString()} stars plotted`
     + (skipped ? ` · ${skipped.toLocaleString()} rows skipped` : '');
   catalogCount.hidden = false;
+  const [low, middle, high] = colorStops;
+  colorLegend.querySelector('.color-ramp').style.background =
+    `linear-gradient(to right in srgb, ${low.color}, ${middle.color}, ${high.color})`;
+  colorLegend.querySelector('.color-labels').replaceChildren(...colorStops.map(({ value }, i) => {
+    const label = document.createElement('span');
+    const prefix = ['≤ ', '', '≥ '][i];
+    label.textContent = prefix + value.toFixed(1);
+    return label;
+  }));
+  colorLegend.hidden = false;
   status.hidden = true;
   for (const button of [zoomIn, zoomOut, reset]) button.disabled = false;
 }

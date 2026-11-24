@@ -38,3 +38,7 @@ python -m http.server 8000 --bind 127.0.0.1
 ```
 
 The converter reports skipped rows with missing or invalid coordinates or nonpositive parallax.
+
+## Star colors
+
+The viewer maps `bp_rp` continuously from red at 0.7 through amber at 2.0 to blue at 3.3. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column. Restart with `npm start` to regenerate any older `stars.bin` file with color data.

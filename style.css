@@ -46,6 +46,27 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+#color-legend { width: 11rem; margin-top: 1rem; }
+
+.color-ramp {
+  height: 0.4rem;
+  margin-top: 0.35rem;
+  border-radius: 1rem;
+}
+
+.color-labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.color-labels span:first-child { text-align: left; }
+.color-labels span:last-child { text-align: right; }
+.missing-color { font-size: 0.75rem; }
+
 #status {
   position: absolute;
   top: 50%;

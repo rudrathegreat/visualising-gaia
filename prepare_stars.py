@@ -11,6 +11,8 @@ from tempfile import NamedTemporaryFile
 
 HEADER = struct.Struct("<II")
 POSITION = struct.Struct("<fff")
+COLOR_INDEX = struct.Struct("<f")
+MISSING_COLOR_INDEX = COLOR_INDEX.pack(math.nan)
 
 
 def galactic_position(longitude, latitude, parallax):
@@ -31,6 +33,17 @@ def galactic_position(longitude, latitude, parallax):
     )
 
 
+def pack_color_index(row, column):
+    if column is not None:
+        try:
+            value = float(row[column])
+            if math.isfinite(value):
+                return COLOR_INDEX.pack(value)
+        except (IndexError, ValueError, OverflowError):
+            pass
+    return MISSING_COLOR_INDEX
+
+
 def prepare_catalog(source, output):
     open_catalog = gzip.open if source.suffix.lower() == ".gz" else open
     plotted = skipped = 0
@@ -44,6 +57,7 @@ def prepare_catalog(source, output):
             if not all(field in fields for field in required):
                 raise ValueError("the catalog must contain l, b, and parallax columns")
             longitude, latitude, parallax = (fields.index(field) for field in required)
+            color_index = fields.index("bp_rp") if "bp_rp" in fields else None
 
             with NamedTemporaryFile(dir=output.parent, prefix=".stars-", suffix=".tmp",
                                     delete=False) as destination:
@@ -61,6 +75,7 @@ def prepare_catalog(source, output):
                         skipped += 1
                         continue
                     destination.write(packed)
+                    destination.write(pack_color_index(row, color_index))
                     plotted += 1
 
                 if plotted == 0:
