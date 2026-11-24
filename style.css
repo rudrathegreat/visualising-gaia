@@ -55,16 +55,20 @@ p {
 }
 
 .color-labels {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  position: relative;
+  display: flex;
+  justify-content: space-between;
   margin-top: 0.25rem;
   font-size: 0.75rem;
-  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
-.color-labels span:first-child { text-align: left; }
-.color-labels span:last-child { text-align: right; }
+.color-labels span:nth-child(2) {
+  position: absolute;
+  left: var(--amber-position);
+  transform: translateX(-50%);
+}
+
 .missing-color { font-size: 0.75rem; }
 
 #brightness-legend { width: 14rem; margin-top: 1rem; }

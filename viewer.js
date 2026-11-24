@@ -8,9 +8,9 @@ const zoomIn = document.querySelector('#zoom-in');
 const reset = document.querySelector('#reset');
 
 const colorStops = [
-  { value: 0.7, color: '#ff5a55' },
-  { value: 1.3, color: '#ffc158' },
-  { value: 1.9, color: '#639dff' },
+  { value: 0.4, color: '#ff5a55' },
+  { value: 0.7, color: '#ffc158' },
+  { value: 1.5, color: '#639dff' },
 ];
 
 function magnitudeBrightness(absoluteMagnitude) {
@@ -198,8 +198,10 @@ async function start() {
     + (skipped ? ` · ${skipped.toLocaleString()} rows skipped` : '');
   catalogCount.hidden = false;
   const [low, middle, high] = colorStops;
+  const amberPosition = (middle.value - low.value) / (high.value - low.value) * 100;
+  colorLegend.style.setProperty('--amber-position', `${amberPosition}%`);
   colorLegend.querySelector('.color-ramp').style.background =
-    `linear-gradient(to right in srgb, ${low.color}, ${middle.color}, ${high.color})`;
+    `linear-gradient(to right in srgb, ${low.color}, ${middle.color} var(--amber-position), ${high.color})`;
   colorLegend.querySelector('.color-labels').replaceChildren(...colorStops.map(({ value }, i) => {
     const label = document.createElement('span');
     const prefix = ['≤ ', '', '≥ '][i];

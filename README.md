@@ -41,7 +41,7 @@ The converter reports skipped rows with missing or invalid coordinates or nonpos
 
 ## Star colors
 
-The viewer maps `bp_rp` continuously from red at 0.7 through amber at 1.3 to blue at 1.9. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
+The viewer maps `bp_rp` continuously from red at 0.4 through amber at 0.7 to blue at 1.5. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
 
 ## Star brightness
 
