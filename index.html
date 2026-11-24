@@ -26,11 +26,11 @@
       <div id="color-legend" hidden>
         <p>BP–RP</p>
         <div class="color-ramp" aria-hidden="true"></div>
-        <div class="color-labels" role="group" aria-label="Red, amber, and blue scale"></div>
+        <div class="color-labels" role="group" aria-label="Blue, white, and orange scale"></div>
         <p class="missing-color">Gray · BP–RP unavailable</p>
       </div>
       <section id="brightness-legend" aria-labelledby="brightness-title" hidden>
-        <p id="brightness-title">Brightness · Absolute G magnitude</p>
+        <p id="brightness-title">Brightness · Apparent G magnitude</p>
         <ul class="brightness-samples" role="list"></ul>
         <p class="brightness-endpoints"><span>Bright</span><span>Faint</span></p>
       </section>
@@ -38,15 +38,24 @@
     <div id="status" role="status">Loading star catalog…</div>
     <div class="navigation">
       <p id="navigation">
-        <span>Drag to pan</span>
-        <span class="mouse-hint">Right-drag to orbit</span>
+        <span class="orbit-hint">Drag to pan</span>
+        <span class="orbit-hint mouse-hint">Right-drag to orbit</span>
+        <span class="sun-hint">Drag to look around</span>
         <span class="mouse-hint">Scroll to zoom</span>
         <span class="touch-hint">Pinch to zoom</span>
       </p>
-      <div class="buttons" role="group" aria-label="Camera controls">
-        <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out" disabled>−</button>
-        <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in" disabled>+</button>
-        <button id="reset" type="button" disabled>Reset view</button>
+      <div class="view-controls">
+        <div class="exposure-control">
+          <label for="exposure">Exposure</label>
+          <input id="exposure" type="range" min="-8" max="8" step="1" value="0" disabled>
+          <output id="exposure-value" for="exposure">0 EV</output>
+        </div>
+        <div class="buttons" role="group" aria-label="Camera controls">
+          <button id="sun-view" type="button" aria-pressed="false" disabled>View from Sun</button>
+          <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out" disabled>−</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in" disabled>+</button>
+          <button id="reset" type="button" disabled>Reset view</button>
+        </div>
       </div>
     </div>
   </main>

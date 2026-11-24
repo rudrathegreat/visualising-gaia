@@ -17,6 +17,8 @@ Open [the star map](http://127.0.0.1:8000) in a WebGL 2 browser. In PowerShell, 
 - Scroll to zoom toward the pointer, or use the **+** and **−** buttons to zoom around the center.
 - On touchscreens, drag to pan and pinch to zoom.
 - Focus the map and use the arrow keys to pan. Select **Reset view** to return to the full catalog.
+- Select **View from Sun** to look out from the heliocentric origin. Drag to look around, use Ctrl+arrow keys when the map is focused, or zoom to change the field of view. Select **View from Sun** again to resume the previous orbit view. **Reset view** in this mode looks toward Galactic longitude and latitude 0°.
+- Adjust **Exposure** in either view. Each +1 EV doubles the flux before it is compressed for display.
 
 ## Coordinates
 
@@ -41,7 +43,7 @@ The converter reports skipped rows with missing or invalid coordinates or nonpos
 
 ## Star colors
 
-The viewer maps `bp_rp` continuously from red at 0.4 through amber at 0.7 to blue at 1.5. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
+The viewer maps `bp_rp` continuously from pale blue at −0.2 through warm white at 0.8 to soft orange at 3.6. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
 
 ## Star brightness
 
@@ -51,4 +53,4 @@ The converter uses `phot_g_mean_mag` and the same parallax distance estimate to 
 M_G = phot_g_mean_mag − 5 × log10(d / 10)
 ```
 
-Lower absolute magnitudes produce brighter points. Faint sources have a low brightness floor, and overlapping glows keep the strongest contribution per color channel to limit glare. The viewer uses a default brightness when G photometry is unavailable. Restart with `npm start` to regenerate an older `stars.bin` with magnitude data.
+The viewer converts absolute magnitude to relative flux at 10 parsecs and scales it by the inverse square of the distance to the camera. From the Sun this recovers the catalog's observed G magnitude, within the precision of the stored values. Both views compress bright flux for display and use different default exposures to suit their viewing distances. Sources without G photometry use a fixed fallback flux before exposure. Restart with `npm start` to regenerate an older `stars.bin` with magnitude data.

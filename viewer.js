@@ -6,24 +6,29 @@ const brightnessLegend = document.querySelector('#brightness-legend');
 const zoomOut = document.querySelector('#zoom-out');
 const zoomIn = document.querySelector('#zoom-in');
 const reset = document.querySelector('#reset');
+const sunView = document.querySelector('#sun-view');
+const exposure = document.querySelector('#exposure');
+const exposureValue = document.querySelector('#exposure-value');
 
 const colorStops = [
-  { value: 0.4, color: '#ff5a55' },
-  { value: 0.7, color: '#ffc158' },
-  { value: 1.5, color: '#639dff' },
+  { value: -0.2, color: '#b5cdff' },
+  { value: 0.8, color: '#fff8f0' },
+  { value: 3.6, color: '#ffa77e' },
 ];
 
-function magnitudeBrightness(absoluteMagnitude) {
-  if (!Number.isFinite(absoluteMagnitude)) return 0.02;
+const orbitReferenceMagnitude = 18;
+const sunReferenceMagnitude = 12;
 
-  // Keep faint stars visible up close without washing out dense regions.
-  return 0.002 + 0.998 / (1 + 10 ** ((absoluteMagnitude - 5) / 2.2));
+function relativeFlux(magnitude, referenceMagnitude) {
+  return 10 ** (0.4 * (referenceMagnitude - magnitude));
 }
 
-function showBrightnessLegend(THREE) {
+function showBrightnessLegend(THREE, referenceMagnitude, exposureMultiplier) {
   const sample = new THREE.Color();
-  const items = [-4, 0, 4, 8, 12, 16].map((magnitude) => {
-    const brightness = magnitudeBrightness(magnitude);
+  const items = [-6, -3, 0, 3, 6, 9].map((offset) => {
+    const magnitude = referenceMagnitude + offset;
+    const flux = relativeFlux(magnitude, referenceMagnitude) * exposureMultiplier;
+    const brightness = flux / (1 + flux);
     const item = document.createElement('li');
     item.textContent = String(magnitude).replace('-', '−');
     item.style.setProperty('--sample-color', sample.setRGB(brightness, brightness, brightness).getStyle());
@@ -59,30 +64,45 @@ async function loadCatalog(THREE) {
   const data = new THREE.InterleavedBuffer(records, valuesPerStar);
   const position = new THREE.InterleavedBufferAttribute(data, 3, 0);
   const colors = new Float32Array(count * 3);
-  const [red, amber, blue] = colorStops.map(({ value, color }) => ({
+  const fluxes = new Float32Array(count);
+  const [blue, white, orange] = colorStops.map(({ value, color }) => ({
     value,
     rgb: new THREE.Color().setStyle(color, THREE.LinearSRGBColorSpace),
   }));
   const gray = new THREE.Color('#9aa3b2');
   const interpolated = new THREE.Color();
+  let hasPhotometry = false;
 
   for (let i = 0; i < count; i++) {
     const offset = i * valuesPerStar;
     const bpRp = records[offset + 3];
     if (Number.isFinite(bpRp)) {
-      const belowMiddle = bpRp < amber.value;
-      const start = belowMiddle ? red : amber;
-      const end = belowMiddle ? amber : blue;
+      const belowMiddle = bpRp < white.value;
+      const start = belowMiddle ? blue : white;
+      const end = belowMiddle ? white : orange;
       const fraction = THREE.MathUtils.clamp((bpRp - start.value) / (end.value - start.value), 0, 1);
       interpolated.copy(start.rgb).lerp(end.rgb, fraction).convertSRGBToLinear();
     } else {
       interpolated.copy(gray);
     }
-    const brightness = hasMagnitude ? magnitudeBrightness(records[offset + 4]) : 1;
-    interpolated.multiplyScalar(brightness).toArray(colors, i * 3);
+    interpolated.toArray(colors, i * 3);
+    const magnitude = hasMagnitude ? records[offset + 4] : NaN;
+    if (Number.isFinite(magnitude)) {
+      hasPhotometry = true;
+      fluxes[i] = relativeFlux(THREE.MathUtils.clamp(magnitude, -40, 80), orbitReferenceMagnitude);
+    } else {
+      fluxes[i] = -1;
+    }
   }
 
-  return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped, hasMagnitude };
+  return {
+    position,
+    color: new THREE.BufferAttribute(colors, 3),
+    fluxAtTenParsecs: new THREE.BufferAttribute(fluxes, 1),
+    count,
+    skipped,
+    hasPhotometry,
+  };
 }
 
 function createStarSprite(THREE) {
@@ -103,6 +123,43 @@ function createStarSprite(THREE) {
   return new THREE.CanvasTexture(canvas);
 }
 
+function createStarMaterial(THREE, photometry) {
+  const material = new THREE.PointsMaterial({
+    map: createStarSprite(THREE),
+    vertexColors: true,
+    size: 11,
+    sizeAttenuation: false,
+    transparent: true,
+    // Keep the strongest contribution per channel where star sprites overlap.
+    premultipliedAlpha: true,
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.MaxEquation,
+    depthWrite: false,
+  });
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, photometry);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute float fluxAtTenParsecs;
+        uniform float fluxScale;
+        uniform float missingFlux;
+        varying float starBrightness;
+      `)
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        // View-space distance is measured in parsecs from the rendering camera.
+        float distanceSquared = max(dot(mvPosition.xyz, mvPosition.xyz), 0.0001);
+        float flux = fluxAtTenParsecs < 0.0
+          ? missingFlux
+          : fluxAtTenParsecs * (100.0 / distanceSquared) * fluxScale;
+        starBrightness = flux / (1.0 + flux);
+      `);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float starBrightness;')
+      .replace('outgoingLight = diffuseColor.rgb;', 'outgoingLight = diffuseColor.rgb * starBrightness;');
+  };
+  return material;
+}
+
 async function start() {
   const [THREE, { OrbitControls }] = await Promise.all([
     import('three'),
@@ -111,7 +168,7 @@ async function start() {
     throw new Error('Three.js could not load. Run npm install and reload.');
   });
 
-  const { position, color, count, skipped, hasMagnitude } = await loadCatalog(THREE);
+  const { position, color, fluxAtTenParsecs, count, skipped, hasPhotometry } = await loadCatalog(THREE);
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer();
@@ -124,39 +181,64 @@ async function start() {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', position);
   geometry.setAttribute('color', color);
+  geometry.setAttribute('fluxAtTenParsecs', fluxAtTenParsecs);
   geometry.computeBoundingSphere();
   const origin = new THREE.Vector3();
   const { center, radius } = geometry.boundingSphere;
   const extent = Math.max(1, center.length() + radius);
 
-  const stars = new THREE.Points(geometry, new THREE.PointsMaterial({
-    map: createStarSprite(THREE),
-    vertexColors: true,
-    size: 11,
-    sizeAttenuation: false,
-    transparent: true,
-    // Keep the strongest contribution per channel where star sprites overlap.
-    premultipliedAlpha: true,
-    blending: THREE.CustomBlending,
-    blendEquation: THREE.MaxEquation,
-    depthWrite: false,
-  }));
+  const photometry = {
+    fluxScale: { value: 1 },
+    missingFlux: { value: 0.02 },
+  };
+  const stars = new THREE.Points(geometry, createStarMaterial(THREE, photometry));
   const scene = new THREE.Scene();
   scene.add(stars);
 
-  const camera = new THREE.PerspectiveCamera(50, 1, extent / 50000, extent * 30);
+  const defaultFov = 50;
+  const camera = new THREE.PerspectiveCamera(defaultFov, 1, extent / 50000, extent * 30);
+  const solarCamera = new THREE.PerspectiveCamera(defaultFov, 1, 0.001, extent * 30);
   camera.up.set(0, 0, 1);
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.mouseButtons.LEFT = THREE.MOUSE.PAN;
-  controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
-  controls.touches.ONE = THREE.TOUCH.PAN;
-  controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
-  controls.zoomToCursor = true;
-  controls.minDistance = extent / 2500;
-  controls.maxDistance = extent * 18;
+  const orbitPosition = new THREE.Vector3();
+  const orbitTarget = new THREE.Vector3();
+  let fromSun = false;
   controls.listenToKeyEvents(viewport);
 
-  const render = () => renderer.render(scene, camera);
+  function setNavigation() {
+    controls.enablePan = !fromSun;
+    controls.mouseButtons.LEFT = fromSun ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN;
+    controls.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    controls.touches.ONE = fromSun ? THREE.TOUCH.ROTATE : THREE.TOUCH.PAN;
+    controls.touches.TWO = fromSun ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN;
+    controls.zoomToCursor = !fromSun;
+    controls.minDistance = fromSun ? 0.35 : extent / 2500;
+    controls.maxDistance = fromSun ? 2 : extent * 18;
+  }
+
+  function render() {
+    if (fromSun) {
+      // OrbitControls supplies rotation and zoom while the rendering camera stays at the Sun.
+      solarCamera.quaternion.copy(camera.quaternion);
+      const halfAngle = THREE.MathUtils.degToRad(defaultFov / 2);
+      solarCamera.fov = THREE.MathUtils.radToDeg(
+        2 * Math.atan(Math.tan(halfAngle) * controls.getDistance()),
+      );
+      solarCamera.updateProjectionMatrix();
+    }
+    renderer.render(scene, fromSun ? solarCamera : camera);
+  }
+
+  function updateExposure() {
+    const stops = Number(exposure.value);
+    const multiplier = 2 ** stops;
+    const referenceMagnitude = fromSun ? sunReferenceMagnitude : orbitReferenceMagnitude;
+    photometry.fluxScale.value = multiplier * relativeFlux(orbitReferenceMagnitude, referenceMagnitude);
+    photometry.missingFlux.value = multiplier * (hasPhotometry ? 0.02 : 1);
+    exposureValue.value = `${stops > 0 ? '+' : ''}${stops} EV`;
+    if (hasPhotometry) showBrightnessLegend(THREE, referenceMagnitude, multiplier);
+  }
+
   controls.addEventListener('change', render);
 
   function resize() {
@@ -165,15 +247,20 @@ async function start() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height);
     camera.aspect = width / height;
+    solarCamera.aspect = camera.aspect;
     camera.updateProjectionMatrix();
     render();
   }
 
   function resetView() {
-    const verticalHalfAngle = THREE.MathUtils.degToRad(camera.fov / 2);
-    const horizontalHalfAngle = Math.atan(Math.tan(verticalHalfAngle) * camera.aspect);
-    const distance = extent / Math.sin(Math.min(verticalHalfAngle, horizontalHalfAngle));
-    camera.position.set(0.30, -0.65, 1).setLength(distance * 1.08);
+    if (fromSun) {
+      camera.position.set(-1, 0, 0);
+    } else {
+      const verticalHalfAngle = THREE.MathUtils.degToRad(camera.fov / 2);
+      const horizontalHalfAngle = Math.atan(Math.tan(verticalHalfAngle) * camera.aspect);
+      const distance = extent / Math.sin(Math.min(verticalHalfAngle, horizontalHalfAngle));
+      camera.position.set(0.30, -0.65, 1).setLength(distance * 1.08);
+    }
     controls.target.copy(origin);
     controls.update();
   }
@@ -190,6 +277,31 @@ async function start() {
   zoomIn.addEventListener('click', () => zoom(0.8));
   zoomOut.addEventListener('click', () => zoom(1.25));
   reset.addEventListener('click', resetView);
+  exposure.addEventListener('input', () => {
+    updateExposure();
+    render();
+  });
+  sunView.addEventListener('click', () => {
+    if (!fromSun) {
+      orbitPosition.copy(camera.position);
+      orbitTarget.copy(controls.target);
+    }
+    fromSun = !fromSun;
+    sunView.setAttribute('aria-pressed', String(fromSun));
+    document.querySelector('#navigation').classList.toggle('from-sun', fromSun);
+    setNavigation();
+    updateExposure();
+    if (fromSun) {
+      resetView();
+    } else {
+      camera.position.copy(orbitPosition);
+      controls.target.copy(orbitTarget);
+      controls.update();
+    }
+    render();
+  });
+  setNavigation();
+  updateExposure();
   new ResizeObserver(resize).observe(viewport);
   resize();
   resetView();
@@ -198,10 +310,10 @@ async function start() {
     + (skipped ? ` · ${skipped.toLocaleString()} rows skipped` : '');
   catalogCount.hidden = false;
   const [low, middle, high] = colorStops;
-  const amberPosition = (middle.value - low.value) / (high.value - low.value) * 100;
-  colorLegend.style.setProperty('--amber-position', `${amberPosition}%`);
+  const middlePosition = (middle.value - low.value) / (high.value - low.value) * 100;
+  colorLegend.style.setProperty('--middle-position', `${middlePosition}%`);
   colorLegend.querySelector('.color-ramp').style.background =
-    `linear-gradient(to right in srgb, ${low.color}, ${middle.color} var(--amber-position), ${high.color})`;
+    `linear-gradient(to right in srgb, ${low.color}, ${middle.color} var(--middle-position), ${high.color})`;
   colorLegend.querySelector('.color-labels').replaceChildren(...colorStops.map(({ value }, i) => {
     const label = document.createElement('span');
     const prefix = ['≤ ', '', '≥ '][i];
@@ -209,9 +321,8 @@ async function start() {
     return label;
   }));
   colorLegend.hidden = false;
-  if (hasMagnitude) showBrightnessLegend(THREE);
   status.hidden = true;
-  for (const button of [zoomIn, zoomOut, reset]) button.disabled = false;
+  for (const input of [zoomIn, zoomOut, reset, sunView, exposure]) input.disabled = false;
 }
 
 start().catch((error) => {
