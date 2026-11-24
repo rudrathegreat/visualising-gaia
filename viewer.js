@@ -199,9 +199,18 @@ async function start() {
   const camera = new THREE.PerspectiveCamera(defaultFov, 1, extent / 50000, extent * 30);
   const solarCamera = new THREE.PerspectiveCamera(defaultFov, 1, 0.001, extent * 30);
   camera.up.set(0, 0, 1);
-  const controls = new OrbitControls(camera, renderer.domElement);
+  // OrbitControls handles the gestures on a separate camera so zoom and drag can share one easing curve.
+  const navigationCamera = camera.clone();
+  const controls = new OrbitControls(navigationCamera, renderer.domElement);
+  const viewTarget = new THREE.Vector3();
+  const viewOffset = new THREE.Spherical();
+  const zUp = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), camera.up);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const orbitPosition = new THREE.Vector3();
   const orbitTarget = new THREE.Vector3();
+  let viewFrame = null;
+  let lastFrameTime = 0;
+  let lastInputTime = 0;
   let fromSun = false;
   controls.listenToKeyEvents(viewport);
 
@@ -218,11 +227,11 @@ async function start() {
 
   function render() {
     if (fromSun) {
-      // OrbitControls supplies rotation and zoom while the rendering camera stays at the Sun.
+      // Apply the eased orientation and field of view from the heliocentric origin.
       solarCamera.quaternion.copy(camera.quaternion);
       const halfAngle = THREE.MathUtils.degToRad(defaultFov / 2);
       solarCamera.fov = THREE.MathUtils.radToDeg(
-        2 * Math.atan(Math.tan(halfAngle) * controls.getDistance()),
+        2 * Math.atan(Math.tan(halfAngle) * viewOffset.radius),
       );
       solarCamera.updateProjectionMatrix();
     }
@@ -239,38 +248,84 @@ async function start() {
     if (hasPhotometry) showBrightnessLegend(THREE, referenceMagnitude, multiplier);
   }
 
-  controls.addEventListener('change', render);
+  function snapView() {
+    if (viewFrame !== null) cancelAnimationFrame(viewFrame);
+    viewFrame = null;
+    viewTarget.copy(controls.target);
+    viewOffset.set(controls.getDistance(), controls.getPolarAngle(), controls.getAzimuthalAngle());
+    camera.position.copy(navigationCamera.position);
+    camera.quaternion.copy(navigationCamera.quaternion);
+    render();
+  }
+
+  function easeView() {
+    viewFrame = null;
+    const now = performance.now();
+    if (reducedMotion.matches || now - lastInputTime >= 360) {
+      snapView();
+      return;
+    }
+
+    const blend = 1 - Math.exp(-(now - lastFrameTime) / 45);
+    lastFrameTime = now;
+    const azimuthDelta = controls.getAzimuthalAngle() - viewOffset.theta;
+    const shortestTurn = THREE.MathUtils.euclideanModulo(azimuthDelta + Math.PI, 2 * Math.PI) - Math.PI;
+    viewOffset.theta += shortestTurn * blend;
+    viewOffset.phi = THREE.MathUtils.lerp(viewOffset.phi, controls.getPolarAngle(), blend);
+    viewOffset.radius = THREE.MathUtils.lerp(viewOffset.radius, controls.getDistance(), blend);
+    viewTarget.lerp(controls.target, blend);
+    camera.position.setFromSpherical(viewOffset).applyQuaternion(zUp).add(viewTarget);
+    camera.lookAt(viewTarget);
+    render();
+    viewFrame = requestAnimationFrame(easeView);
+  }
+
+  controls.addEventListener('change', () => {
+    // Pan and cursor zoom read the navigation camera's matrices between input events.
+    navigationCamera.updateMatrixWorld();
+    if (reducedMotion.matches) {
+      snapView();
+      return;
+    }
+    lastInputTime = performance.now();
+    if (viewFrame === null) {
+      lastFrameTime = lastInputTime;
+      viewFrame = requestAnimationFrame(easeView);
+    }
+  });
 
   function resize() {
     const { clientWidth: width, clientHeight: height } = viewport;
     if (!width || !height) return;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height);
-    camera.aspect = width / height;
-    solarCamera.aspect = camera.aspect;
-    camera.updateProjectionMatrix();
+    for (const viewCamera of [camera, navigationCamera, solarCamera]) {
+      viewCamera.aspect = width / height;
+      viewCamera.updateProjectionMatrix();
+    }
     render();
   }
 
   function resetView() {
     if (fromSun) {
-      camera.position.set(-1, 0, 0);
+      navigationCamera.position.set(-1, 0, 0);
     } else {
       const verticalHalfAngle = THREE.MathUtils.degToRad(camera.fov / 2);
       const horizontalHalfAngle = Math.atan(Math.tan(verticalHalfAngle) * camera.aspect);
       const distance = extent / Math.sin(Math.min(verticalHalfAngle, horizontalHalfAngle));
-      camera.position.set(0.30, -0.65, 1).setLength(distance * 1.08);
+      navigationCamera.position.set(0.30, -0.65, 1).setLength(distance * 1.08);
     }
     controls.target.copy(origin);
     controls.update();
+    snapView();
   }
 
   function zoom(factor) {
-    const offset = camera.position.clone().sub(controls.target);
+    const offset = navigationCamera.position.clone().sub(controls.target);
     const distance = THREE.MathUtils.clamp(
       offset.length() * factor, controls.minDistance, controls.maxDistance,
     );
-    camera.position.copy(controls.target).add(offset.setLength(distance));
+    navigationCamera.position.copy(controls.target).add(offset.setLength(distance));
     controls.update();
   }
 
@@ -283,7 +338,7 @@ async function start() {
   });
   sunView.addEventListener('click', () => {
     if (!fromSun) {
-      orbitPosition.copy(camera.position);
+      orbitPosition.copy(navigationCamera.position);
       orbitTarget.copy(controls.target);
     }
     fromSun = !fromSun;
@@ -294,11 +349,11 @@ async function start() {
     if (fromSun) {
       resetView();
     } else {
-      camera.position.copy(orbitPosition);
+      navigationCamera.position.copy(orbitPosition);
       controls.target.copy(orbitTarget);
       controls.update();
+      snapView();
     }
-    render();
   });
   setNavigation();
   updateExposure();
