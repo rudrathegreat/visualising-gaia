@@ -59,6 +59,22 @@ async function loadCatalog(THREE) {
   return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped };
 }
 
+function createStarSprite(THREE) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext('2d');
+  const radius = canvas.width / 2;
+  const glow = context.createRadialGradient(radius, radius, 0, radius, radius, radius);
+  glow.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  glow.addColorStop(0.14, 'rgba(255, 255, 255, 0.85)');
+  glow.addColorStop(0.3, 'rgba(255, 255, 255, 0.18)');
+  glow.addColorStop(0.6, 'rgba(255, 255, 255, 0.035)');
+  glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return new THREE.CanvasTexture(canvas);
+}
+
 async function start() {
   const [THREE, { OrbitControls }] = await Promise.all([
     import('three'),
@@ -74,7 +90,7 @@ async function start() {
   } catch {
     throw new Error('This viewer requires a browser with WebGL 2 enabled.');
   }
-  renderer.setClearColor(0x070c17);
+  renderer.setClearColor(0x000000);
   viewport.append(renderer.domElement);
 
   const geometry = new THREE.BufferGeometry();
@@ -86,9 +102,13 @@ async function start() {
   const extent = Math.max(1, center.length() + radius);
 
   const stars = new THREE.Points(geometry, new THREE.PointsMaterial({
+    map: createStarSprite(THREE),
     vertexColors: true,
-    size: 1.45,
+    size: 7,
     sizeAttenuation: false,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
   }));
   const scene = new THREE.Scene();
   scene.add(stars);
