@@ -12,6 +12,13 @@ const colorStops = [
   { value: 3.3, color: '#639dff' },
 ];
 
+function magnitudeBrightness(absoluteMagnitude) {
+  if (!Number.isFinite(absoluteMagnitude)) return 0.3;
+
+  // Compress the luminosity range and keep faint stars visible.
+  return 0.12 + 0.88 / (1 + 10 ** ((absoluteMagnitude - 6) / 4));
+}
+
 async function loadCatalog(THREE) {
   const response = await fetch('./stars.bin');
   if (!response.ok) {
@@ -27,13 +34,15 @@ async function loadCatalog(THREE) {
   const header = new DataView(buffer);
   const count = header.getUint32(0, true);
   const skipped = header.getUint32(4, true);
-  const stride = 4; // X, Y, Z, BP–RP
-  if (!count || buffer.byteLength !== headerSize + count * stride * Float32Array.BYTES_PER_ELEMENT) {
+  const valuesPerStar = (buffer.byteLength - headerSize) / Float32Array.BYTES_PER_ELEMENT / count;
+  // Older catalogs contain only X, Y, Z, and BP–RP.
+  if (valuesPerStar !== 4 && valuesPerStar !== 5) {
     throw new Error('Star data is outdated or invalid. Run python prepare_stars.py again.');
   }
 
+  const hasMagnitude = valuesPerStar === 5;
   const records = new Float32Array(buffer, headerSize);
-  const data = new THREE.InterleavedBuffer(records, stride);
+  const data = new THREE.InterleavedBuffer(records, valuesPerStar);
   const position = new THREE.InterleavedBufferAttribute(data, 3, 0);
   const colors = new Float32Array(count * 3);
   const [red, amber, blue] = colorStops.map(({ value, color }) => ({
@@ -44,16 +53,19 @@ async function loadCatalog(THREE) {
   const interpolated = new THREE.Color();
 
   for (let i = 0; i < count; i++) {
-    const bpRp = records[i * stride + 3];
-    if (!Number.isFinite(bpRp)) {
-      gray.toArray(colors, i * 3);
-      continue;
+    const offset = i * valuesPerStar;
+    const bpRp = records[offset + 3];
+    if (Number.isFinite(bpRp)) {
+      const belowMiddle = bpRp < amber.value;
+      const start = belowMiddle ? red : amber;
+      const end = belowMiddle ? amber : blue;
+      const fraction = THREE.MathUtils.clamp((bpRp - start.value) / (end.value - start.value), 0, 1);
+      interpolated.copy(start.rgb).lerp(end.rgb, fraction).convertSRGBToLinear();
+    } else {
+      interpolated.copy(gray);
     }
-    const belowMiddle = bpRp < amber.value;
-    const start = belowMiddle ? red : amber;
-    const end = belowMiddle ? amber : blue;
-    const fraction = THREE.MathUtils.clamp((bpRp - start.value) / (end.value - start.value), 0, 1);
-    interpolated.copy(start.rgb).lerp(end.rgb, fraction).convertSRGBToLinear().toArray(colors, i * 3);
+    const brightness = hasMagnitude ? magnitudeBrightness(records[offset + 4]) : 1;
+    interpolated.multiplyScalar(brightness).toArray(colors, i * 3);
   }
 
   return { position, color: new THREE.BufferAttribute(colors, 3), count, skipped };

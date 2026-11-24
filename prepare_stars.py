@@ -11,8 +11,8 @@ from tempfile import NamedTemporaryFile
 
 HEADER = struct.Struct("<II")
 POSITION = struct.Struct("<fff")
-COLOR_INDEX = struct.Struct("<f")
-MISSING_COLOR_INDEX = COLOR_INDEX.pack(math.nan)
+PHOTOMETRY_VALUE = struct.Struct("<f")
+MISSING_PHOTOMETRY = PHOTOMETRY_VALUE.pack(math.nan)
 
 
 def galactic_position(longitude, latitude, parallax):
@@ -33,15 +33,15 @@ def galactic_position(longitude, latitude, parallax):
     )
 
 
-def pack_color_index(row, column):
+def pack_photometry(row, column, offset=0):
     if column is not None:
         try:
-            value = float(row[column])
+            value = float(row[column]) + offset
             if math.isfinite(value):
-                return COLOR_INDEX.pack(value)
+                return PHOTOMETRY_VALUE.pack(value)
         except (IndexError, ValueError, OverflowError):
             pass
-    return MISSING_COLOR_INDEX
+    return MISSING_PHOTOMETRY
 
 
 def prepare_catalog(source, output):
@@ -58,6 +58,7 @@ def prepare_catalog(source, output):
                 raise ValueError("the catalog must contain l, b, and parallax columns")
             longitude, latitude, parallax = (fields.index(field) for field in required)
             color_index = fields.index("bp_rp") if "bp_rp" in fields else None
+            g_magnitude = fields.index("phot_g_mean_mag") if "phot_g_mean_mag" in fields else None
 
             with NamedTemporaryFile(dir=output.parent, prefix=".stars-", suffix=".tmp",
                                     delete=False) as destination:
@@ -65,8 +66,9 @@ def prepare_catalog(source, output):
                 destination.write(HEADER.pack(0, 0))
                 for row in reader:
                     try:
+                        parallax_mas = float(row[parallax])
                         position = galactic_position(
-                            float(row[longitude]), float(row[latitude]), float(row[parallax])
+                            float(row[longitude]), float(row[latitude]), parallax_mas
                         )
                         if not all(map(math.isfinite, position)):
                             raise ValueError("position exceeds numeric range")
@@ -75,7 +77,9 @@ def prepare_catalog(source, output):
                         skipped += 1
                         continue
                     destination.write(packed)
-                    destination.write(pack_color_index(row, color_index))
+                    destination.write(pack_photometry(row, color_index))
+                    distance_modulus = 10 - 5 * math.log10(parallax_mas)
+                    destination.write(pack_photometry(row, g_magnitude, -distance_modulus))
                     plotted += 1
 
                 if plotted == 0:
