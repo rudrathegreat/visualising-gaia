@@ -19,7 +19,7 @@ Open [the star map](http://127.0.0.1:8000) in a WebGL 2 browser. In PowerShell, 
 - Focus the map and use the arrow keys to pan. Select **Reset view** to return to the full catalog.
 - Select **View from Sun** to look out from the heliocentric origin. Drag to look around, use Ctrl+arrow keys when the map is focused, or zoom to change the field of view. Select **View from Sun** again to resume the previous orbit view. **Reset view** in this mode looks toward Galactic longitude and latitude 0°.
 - Select **Fly through** to travel from the Sun through the 3D star field. Drag to look around, hold **WASD** to move and **Q/E** to descend or climb. Hold **Shift** to move faster, or use the scroll wheel or **+** and **−** to step forward and backward. **Reset view** returns to the Sun. Select **Fly through** again to return to the previous view.
-- Adjust **Exposure** in any view. Each +1 EV doubles the flux before it is compressed for display.
+- Adjust **Exposure** in any view. Higher values lift faint stars more strongly and flatten the brightness falloff with magnitude.
 
 ## Coordinates
 

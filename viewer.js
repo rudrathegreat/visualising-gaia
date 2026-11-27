@@ -22,7 +22,7 @@ const colorStops = [
 
 const orbitReferenceMagnitude = 18;
 const sunReferenceMagnitude = 12;
-const starSize = 11;
+const starSize = 15;
 const catalogMagic = 0x32494147; // GAI2
 const catalogHeaderSize = 40;
 const chunkHeaderSize = 40;
@@ -32,12 +32,12 @@ function relativeFlux(magnitude, referenceMagnitude) {
   return 10 ** (0.4 * (referenceMagnitude - magnitude));
 }
 
-function showBrightnessLegend(THREE, referenceMagnitude, exposureMultiplier) {
+function showBrightnessLegend(THREE, referenceMagnitude, brightnessExponent) {
   const sample = new THREE.Color();
   const items = [-6, -3, 0, 3, 6, 9].map((offset) => {
     const magnitude = referenceMagnitude + offset;
-    const flux = relativeFlux(magnitude, referenceMagnitude) * exposureMultiplier;
-    const brightness = flux / (1 + flux);
+    const flux = relativeFlux(magnitude, referenceMagnitude);
+    const brightness = (flux / (1 + flux)) ** brightnessExponent;
     const item = document.createElement('li');
     item.textContent = String(magnitude).replace('-', '−');
     item.style.setProperty('--sample-color', sample.setRGB(brightness, brightness, brightness).getStyle());
@@ -259,9 +259,9 @@ function createStarSprite(THREE) {
   const glow = context.createRadialGradient(radius, radius, 0, radius, radius, radius);
   glow.addColorStop(0, 'rgba(255, 255, 255, 1)');
   // Keep the core compact and spread a low-opacity halo around it.
-  glow.addColorStop(0.09, 'rgba(255, 255, 255, 0.85)');
-  glow.addColorStop(0.2, 'rgba(255, 255, 255, 0.10)');
-  glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.045)');
+  glow.addColorStop(0.16, 'rgba(255, 255, 255, 1)');
+  glow.addColorStop(0.3, 'rgba(255, 255, 255, 0.45)');
+  glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.10)');
   glow.addColorStop(0.8, 'rgba(255, 255, 255, 0.012)');
   glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
   context.fillStyle = glow;
@@ -289,6 +289,7 @@ function createStarMaterial(THREE, photometry) {
         attribute float fluxAtTenParsecs;
         uniform float fluxScale;
         uniform float missingFlux;
+        uniform float brightnessExponent;
         varying float starBrightness;
       `)
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -297,13 +298,18 @@ function createStarMaterial(THREE, photometry) {
         float flux = fluxAtTenParsecs < 0.0
           ? missingFlux
           : fluxAtTenParsecs * (100.0 / distanceSquared) * fluxScale;
-        starBrightness = flux / (1.0 + flux);
+        starBrightness = pow(flux / (1.0 + flux), brightnessExponent);
       `)
       .replace('gl_PointSize = size;', `// Limit the fill cost of faint stars while retaining bright glows.
         gl_PointSize = size * mix(0.55, 1.0, sqrt(starBrightness));`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float starBrightness;')
-      .replace('outgoingLight = diffuseColor.rgb;', 'outgoingLight = diffuseColor.rgb * starBrightness;');
+      .replace('outgoingLight = diffuseColor.rgb;', `
+        // Restore visible color in small, bright sprites without clipping their channels.
+        float peak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
+        vec3 starColor = peak > 0.0 ? pow(diffuseColor.rgb / peak, vec3(2.0)) : vec3(0.0);
+        outgoingLight = starColor * starBrightness;
+      `);
   };
   return material;
 }
@@ -333,6 +339,7 @@ async function start() {
   const photometry = {
     fluxScale: { value: 1 },
     missingFlux: { value: 0.02 },
+    brightnessExponent: { value: 0.3 },
   };
   const material = createStarMaterial(THREE, photometry);
   const scene = new THREE.Scene();
@@ -421,12 +428,14 @@ async function start() {
 
   function updateExposure() {
     const stops = Number(exposure.value);
-    const multiplier = 2 ** stops;
+    // Higher exposure flattens the magnitude-to-brightness curve, lifting faint stars most.
+    const brightnessExponent = 0.3 * 2 ** (-stops / 8);
     const referenceMagnitude = fromSun || flying ? sunReferenceMagnitude : orbitReferenceMagnitude;
-    photometry.fluxScale.value = multiplier * relativeFlux(orbitReferenceMagnitude, referenceMagnitude);
-    photometry.missingFlux.value = multiplier * (hasPhotometry ? 0.02 : 1);
-    exposureValue.value = `${stops > 0 ? '+' : ''}${stops} EV`;
-    if (hasPhotometry) showBrightnessLegend(THREE, referenceMagnitude, multiplier);
+    photometry.fluxScale.value = relativeFlux(orbitReferenceMagnitude, referenceMagnitude);
+    photometry.missingFlux.value = hasPhotometry ? 0.02 : 1;
+    photometry.brightnessExponent.value = brightnessExponent;
+    exposureValue.value = `${stops > 0 ? '+' : ''}${stops}`;
+    if (hasPhotometry) showBrightnessLegend(THREE, referenceMagnitude, brightnessExponent);
   }
 
   function snapView() {
