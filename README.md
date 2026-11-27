@@ -48,7 +48,7 @@ Older `stars.bin` files still load. Regenerate them with the current converter t
 
 ## Star colors
 
-The viewer maps `bp_rp` continuously from pale blue at −0.2 through warm white at 0.8 to soft orange at 3.6. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear gray, including when a custom catalog has no `bp_rp` column.
+The viewer maps `bp_rp` continuously from blue at −0.2 through blue-white at 0.8 to orange at 3.6. Values beyond the endpoints use the endpoint colors. Sources with missing or invalid BP–RP appear blue-gray, including when a custom catalog has no `bp_rp` column.
 
 ## Star brightness
 

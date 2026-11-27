@@ -19,11 +19,12 @@ const colorStops = [
   { value: 0.8, color: '#fff8f0' },
   { value: 3.6, color: '#ffa77e' },
 ];
+const starColorTint = [0.8, 0.91, 1];
 
 const orbitReferenceMagnitude = 18;
 const sunReferenceMagnitude = 12;
-const minStarHaloDiameter = 8;
-const maxStarHaloDiameter = 20;
+const minStarHaloDiameter = 11;
+const maxStarHaloDiameter = 26;
 const catalogMagic = 0x32494147; // GAI2
 const catalogHeaderSize = 40;
 const chunkHeaderSize = 40;
@@ -267,6 +268,7 @@ function createStarMaterial(THREE, photometry) {
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, photometry);
     shader.uniforms.starHaloDiameter = { value: material.size };
+    shader.uniforms.starColorTint = { value: starColorTint };
     const starVaryings = `#include <common>
       varying float starBrightness;
       varying float starHaloRadius;
@@ -295,7 +297,9 @@ function createStarMaterial(THREE, photometry) {
         gl_PointSize = size * haloScale;
       `);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', starVaryings)
+      .replace('#include <common>', `${starVaryings}
+        uniform vec3 starColorTint;
+      `)
       .replace('#include <map_particle_fragment>', `
         vec2 offset = 2.0 * gl_PointCoord - vec2(1.0);
         float radiusSquared = dot(offset, offset);
@@ -308,8 +312,9 @@ function createStarMaterial(THREE, photometry) {
       `)
       .replace('outgoingLight = diffuseColor.rgb;', `
         // Restore visible color in small, bright sprites without clipping their channels.
-        float peak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
-        vec3 normalizedColor = peak > 0.0 ? diffuseColor.rgb / peak : vec3(0.0);
+        vec3 tintedColor = diffuseColor.rgb * starColorTint;
+        float peak = max(max(tintedColor.r, tintedColor.g), tintedColor.b);
+        vec3 normalizedColor = peak > 0.0 ? tintedColor / peak : vec3(0.0);
         float blueBias = max(normalizedColor.b - normalizedColor.r, 0.0);
         float redBias = max(normalizedColor.r - normalizedColor.b, 0.0);
         float saturation = 4.5 + 10.0 * blueBias;
@@ -608,9 +613,12 @@ async function start() {
 
   const [low, middle, high] = colorStops;
   const middlePosition = (middle.value - low.value) / (high.value - low.value) * 100;
+  const tint = new THREE.Color(...starColorTint);
+  const [lowColor, middleColor, highColor] = colorStops.map(({ color }) =>
+    new THREE.Color(color).multiply(tint).getStyle());
   colorLegend.style.setProperty('--middle-position', `${middlePosition}%`);
   colorLegend.querySelector('.color-ramp').style.background =
-    `linear-gradient(to right in srgb, ${low.color}, ${middle.color} var(--middle-position), ${high.color})`;
+    `linear-gradient(to right in srgb, ${lowColor}, ${middleColor} var(--middle-position), ${highColor})`;
   colorLegend.querySelector('.color-labels').replaceChildren(...colorStops.map(({ value }, i) => {
     const label = document.createElement('span');
     const prefix = ['≤ ', '', '≥ '][i];
