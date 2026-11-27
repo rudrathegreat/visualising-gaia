@@ -307,7 +307,12 @@ function createStarMaterial(THREE, photometry) {
       .replace('outgoingLight = diffuseColor.rgb;', `
         // Restore visible color in small, bright sprites without clipping their channels.
         float peak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
-        vec3 starColor = peak > 0.0 ? pow(diffuseColor.rgb / peak, vec3(2.0)) : vec3(0.0);
+        vec3 normalizedColor = peak > 0.0 ? diffuseColor.rgb / peak : vec3(0.0);
+        float blueBias = max(normalizedColor.b - normalizedColor.r, 0.0);
+        float redBias = max(normalizedColor.r - normalizedColor.b, 0.0);
+        float saturation = 4.5 + 10.0 * blueBias;
+        saturation = mix(saturation, 1.0, redBias * (1.0 - starBrightness));
+        vec3 starColor = pow(normalizedColor, vec3(saturation));
         outgoingLight = starColor * starBrightness;
       `);
   };
@@ -429,7 +434,7 @@ async function start() {
   function updateExposure() {
     const stops = Number(exposure.value);
     // Higher exposure flattens the magnitude-to-brightness curve, lifting faint stars most.
-    const brightnessExponent = 0.3 * 2 ** (-stops / 8);
+    const brightnessExponent = 0.3 * 2 ** (-stops / 3);
     const referenceMagnitude = fromSun || flying ? sunReferenceMagnitude : orbitReferenceMagnitude;
     photometry.fluxScale.value = relativeFlux(orbitReferenceMagnitude, referenceMagnitude);
     photometry.missingFlux.value = hasPhotometry ? 0.02 : 1;
