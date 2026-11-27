@@ -22,7 +22,8 @@ const colorStops = [
 
 const orbitReferenceMagnitude = 18;
 const sunReferenceMagnitude = 12;
-const starSize = 15;
+const minStarHaloDiameter = 8;
+const maxStarHaloDiameter = 20;
 const catalogMagic = 0x32494147; // GAI2
 const catalogHeaderSize = 40;
 const chunkHeaderSize = 40;
@@ -251,29 +252,10 @@ function readLegacyCatalog(THREE, buffer) {
   };
 }
 
-function createStarSprite(THREE) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 64;
-  const context = canvas.getContext('2d');
-  const radius = canvas.width / 2;
-  const glow = context.createRadialGradient(radius, radius, 0, radius, radius, radius);
-  glow.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  // Keep the core compact and spread a low-opacity halo around it.
-  glow.addColorStop(0.16, 'rgba(255, 255, 255, 1)');
-  glow.addColorStop(0.3, 'rgba(255, 255, 255, 0.45)');
-  glow.addColorStop(0.55, 'rgba(255, 255, 255, 0.10)');
-  glow.addColorStop(0.8, 'rgba(255, 255, 255, 0.012)');
-  glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  context.fillStyle = glow;
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  return new THREE.CanvasTexture(canvas);
-}
-
 function createStarMaterial(THREE, photometry) {
   const material = new THREE.PointsMaterial({
-    map: createStarSprite(THREE),
     vertexColors: true,
-    size: starSize,
+    size: maxStarHaloDiameter,
     sizeAttenuation: false,
     transparent: true,
     // Keep the strongest contribution per channel where star sprites overlap.
@@ -284,13 +266,18 @@ function createStarMaterial(THREE, photometry) {
   });
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, photometry);
+    shader.uniforms.starHaloDiameter = { value: material.size };
+    const starVaryings = `#include <common>
+      varying float starBrightness;
+      varying float starHaloRadius;
+    `;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>
+      .replace('#include <common>', `${starVaryings}
         attribute float fluxAtTenParsecs;
         uniform float fluxScale;
         uniform float missingFlux;
         uniform float brightnessExponent;
-        varying float starBrightness;
+        uniform float starHaloDiameter;
       `)
       .replace('#include <project_vertex>', `#include <project_vertex>
         // View-space distance is measured in parsecs from the rendering camera.
@@ -300,10 +287,25 @@ function createStarMaterial(THREE, photometry) {
           : fluxAtTenParsecs * (100.0 / distanceSquared) * fluxScale;
         starBrightness = pow(flux / (1.0 + flux), brightnessExponent);
       `)
-      .replace('gl_PointSize = size;', `// Limit the fill cost of faint stars while retaining bright glows.
-        gl_PointSize = size * mix(0.55, 1.0, sqrt(starBrightness));`);
+      .replace('gl_PointSize = size;', `
+        // Keep unresolved stars small on screen while giving brighter stars wider halos.
+        float haloScale = mix(${minStarHaloDiameter / maxStarHaloDiameter}, 1.0,
+          starBrightness * starBrightness);
+        starHaloRadius = 0.5 * starHaloDiameter * haloScale;
+        gl_PointSize = size * haloScale;
+      `);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float starBrightness;')
+      .replace('#include <common>', starVaryings)
+      .replace('#include <map_particle_fragment>', `
+        vec2 offset = 2.0 * gl_PointCoord - vec2(1.0);
+        float radiusSquared = dot(offset, offset);
+        float pixelDistanceSquared = radiusSquared * starHaloRadius * starHaloRadius;
+        // A tight Gaussian core sits inside a broad, smoothly tapered radial halo.
+        float core = exp(-1.5 * pixelDistanceSquared);
+        float halo = 0.18 / (1.0 + 12.0 * radiusSquared);
+        float edgeFade = 1.0 - smoothstep(0.5, 1.0, radiusSquared);
+        diffuseColor.a *= mix(halo, 1.0, core) * edgeFade;
+      `)
       .replace('outgoingLight = diffuseColor.rgb;', `
         // Restore visible color in small, bright sprites without clipping their channels.
         float peak = max(max(diffuseColor.r, diffuseColor.g), diffuseColor.b);
