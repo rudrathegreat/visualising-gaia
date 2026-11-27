@@ -20,6 +20,13 @@ Open [the star map](http://127.0.0.1:8000) in a WebGL 2 browser. In PowerShell, 
 - Select **View from Sun** to look out from the heliocentric origin. Drag to look around, use Ctrl+arrow keys when the map is focused, or zoom to change the field of view. Select **View from Sun** again to resume the previous orbit view. **Reset view** in this mode looks toward Galactic longitude and latitude 0°.
 - Select **Fly through** to travel from the Sun through the 3D star field. Drag to look around, hold **WASD** to move and **Q/E** to descend or climb. Hold **Shift** to move faster, or use the scroll wheel or **+** and **−** to step forward and backward. **Reset view** returns to the Sun. Select **Fly through** again to return to the previous view.
 - Adjust **Exposure** in any view. Higher values lift faint stars more strongly and flatten the brightness falloff with magnitude.
+- Select **View Galactic disk** for a full-disk orbit view. **Reset view** in orbit returns to the local Gaia catalog.
+
+## Galactic dust
+
+The viewer models a flat, static dust disk perpendicular to the Gaia sample cylinder. A thin, clumpy spiral disk sits inside a more diffuse thick layer. Both layers extend beyond the bundled catalog and scatter a smooth estimate of Galactic starlight.
+
+The stored Gaia colors and magnitudes already include extinction along sightlines from the Sun. The viewer adjusts direct starlight by the change in modeled extinction as you move the camera, and adds faint scattered halos along dusty sightlines. The spiral lanes and illumination are procedural approximations.
 
 ## Coordinates
 

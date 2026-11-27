@@ -1,4 +1,5 @@
 import { createFlightControls } from './flight-controls.js';
+import { createDustRenderer, dustRadius, dustShader, galacticCenter } from './galactic-dust.js';
 
 const viewport = document.querySelector('#viewport');
 const status = document.querySelector('#status');
@@ -10,6 +11,7 @@ const zoomIn = document.querySelector('#zoom-in');
 const reset = document.querySelector('#reset');
 const sunView = document.querySelector('#sun-view');
 const flyView = document.querySelector('#fly-view');
+const diskView = document.querySelector('#disk-view');
 const navigation = document.querySelector('#navigation');
 const exposure = document.querySelector('#exposure');
 const exposureValue = document.querySelector('#exposure-value');
@@ -253,7 +255,7 @@ function readLegacyCatalog(THREE, buffer) {
   };
 }
 
-function createStarMaterial(THREE, photometry) {
+function createStarMaterial(THREE, photometry, dustUniforms) {
   const material = new THREE.PointsMaterial({
     vertexColors: true,
     size: maxStarHaloDiameter,
@@ -266,12 +268,14 @@ function createStarMaterial(THREE, photometry) {
     depthWrite: false,
   });
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, photometry);
+    Object.assign(shader.uniforms, photometry, dustUniforms);
     shader.uniforms.starHaloDiameter = { value: material.size };
     shader.uniforms.starColorTint = { value: starColorTint };
     const starVaryings = `#include <common>
       varying float starBrightness;
       varying float starHaloRadius;
+      varying float dustHalo;
+      varying vec3 dustTint;
     `;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `${starVaryings}
@@ -280,19 +284,33 @@ function createStarMaterial(THREE, photometry) {
         uniform float missingFlux;
         uniform float brightnessExponent;
         uniform float starHaloDiameter;
+        ${dustShader}
       `)
       .replace('#include <project_vertex>', `#include <project_vertex>
+        // Points whose centers are outside the clip volume do not produce fragments.
+        if (any(greaterThan(abs(gl_Position.xyz), vec3(gl_Position.w)))) return;
+        vec3 star = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        float dustDepth = stellarDustDepth(cameraPosition, star);
+        float solarDepth = dot(cameraPosition, cameraPosition) < 1e-8
+          ? dustDepth
+          : stellarDustDepth(vec3(0.0), star);
+        // Gaia photometry already contains the extinction along the Sun's sightline.
+        float deltaDepth = clamp(dustDepth - solarDepth, -3.0, 16.0);
+        dustTint = exp(-deltaDepth * (extinctionRGB - vec3(1.0)));
+        dustHalo = 1.0 - exp(-dustDepth);
         // View-space distance is measured in parsecs from the rendering camera.
         float distanceSquared = max(dot(mvPosition.xyz, mvPosition.xyz), 0.0001);
         float flux = fluxAtTenParsecs < 0.0
           ? missingFlux
           : fluxAtTenParsecs * (100.0 / distanceSquared) * fluxScale;
+        flux *= exp(-deltaDepth);
         starBrightness = pow(flux / (1.0 + flux), brightnessExponent);
       `)
       .replace('gl_PointSize = size;', `
         // Keep unresolved stars small on screen while giving brighter stars wider halos.
         float haloScale = mix(${minStarHaloDiameter / maxStarHaloDiameter}, 1.0,
           starBrightness * starBrightness);
+        haloScale *= 1.0 + 0.4 * dustHalo;
         starHaloRadius = 0.5 * starHaloDiameter * haloScale;
         gl_PointSize = size * haloScale;
       `);
@@ -306,7 +324,10 @@ function createStarMaterial(THREE, photometry) {
         float pixelDistanceSquared = radiusSquared * starHaloRadius * starHaloRadius;
         // A tight Gaussian core sits inside a broad, smoothly tapered radial halo.
         float core = exp(-1.5 * pixelDistanceSquared);
-        float halo = 0.18 / (1.0 + 12.0 * radiusSquared);
+        float baseRadiusSquared = radiusSquared * pow(1.0 + 0.4 * dustHalo, 2.0);
+        float halo = 0.18 / (1.0 + 12.0 * baseRadiusSquared);
+        halo += 0.09 * dustHalo * (1.0 - exp(-0.28 * pixelDistanceSquared))
+          * exp(-2.8 * radiusSquared);
         float edgeFade = 1.0 - smoothstep(0.5, 1.0, radiusSquared);
         diffuseColor.a *= mix(halo, 1.0, core) * edgeFade;
       `)
@@ -320,8 +341,10 @@ function createStarMaterial(THREE, photometry) {
         float saturation = 4.5 + 10.0 * blueBias;
         saturation = mix(saturation, 1.0, redBias * (1.0 - starBrightness));
         vec3 starColor = pow(normalizedColor, vec3(saturation));
-        outgoingLight = starColor * starBrightness;
-      `);
+        outgoingLight = starColor * dustTint * starBrightness;
+      `)
+      // Preserve the original point profiles in the 8-bit buffer before linear compositing.
+      .replace('#include <colorspace_fragment>', 'gl_FragColor = sRGBTransferOETF(gl_FragColor);');
   };
   return material;
 }
@@ -353,8 +376,10 @@ async function start() {
     missingFlux: { value: 0.02 },
     brightnessExponent: { value: 0.3 },
   };
-  const material = createStarMaterial(THREE, photometry);
+  const dust = createDustRenderer(THREE, renderer);
+  const material = createStarMaterial(THREE, photometry, dust.dustUniforms);
   const scene = new THREE.Scene();
+  const diskCenter = new THREE.Vector3(...galacticCenter);
   let chunks = [];
   let viewportWidth = 0;
   let viewportHeight = 0;
@@ -397,6 +422,7 @@ async function start() {
   let lastInputTime = 0;
   let fromSun = false;
   let flying = false;
+  let viewingDisk = false;
   controls.listenToKeyEvents(viewport);
 
   function setNavigation() {
@@ -416,7 +442,19 @@ async function start() {
     controls.touches.TWO = fromSun ? THREE.TOUCH.DOLLY_ROTATE : THREE.TOUCH.DOLLY_PAN;
     controls.zoomToCursor = !fromSun;
     controls.minDistance = fromSun ? 0.35 : extent / 2500;
-    controls.maxDistance = fromSun ? 2 : extent * 18;
+    updateOrbitRange();
+  }
+
+  function framingDistance(radius) {
+    const horizontalHalfAngle = Math.atan(halfFovTangent * camera.aspect);
+    return 1.08 * radius / Math.sin(Math.min(THREE.MathUtils.degToRad(defaultFov / 2), horizontalHalfAngle));
+  }
+
+  function updateOrbitRange() {
+    const diskDistance = framingDistance(dustRadius);
+    controls.maxDistance = fromSun ? 2 : viewingDisk ? Math.max(extent * 18, diskDistance * 2) : extent * 18;
+    camera.far = Math.max(extent * 30, (viewingDisk ? diskDistance * 2 + dustRadius + diskCenter.length() : 0));
+    camera.updateProjectionMatrix();
   }
 
   function render() {
@@ -426,6 +464,7 @@ async function start() {
       drawingWidth = viewportWidth;
       drawingHeight = viewportHeight;
       renderer.setDrawingBufferSize(drawingWidth, drawingHeight, ratio);
+      dust.resize(renderer.domElement.width, renderer.domElement.height);
     }
     if (fromSun && !flying) {
       // Apply the eased orientation and field of view from the heliocentric origin.
@@ -435,7 +474,7 @@ async function start() {
       );
       solarCamera.updateProjectionMatrix();
     }
-    renderer.render(scene, flying ? flightCamera : fromSun ? solarCamera : camera);
+    dust.render(scene, flying ? flightCamera : fromSun ? solarCamera : camera);
   }
 
   function updateExposure() {
@@ -511,9 +550,22 @@ async function start() {
     viewportWidth = width;
     viewportHeight = height;
     if (!viewportWidth || !viewportHeight) return;
+    const oldDiskDistance = framingDistance(dustRadius);
     for (const viewCamera of [camera, navigationCamera, solarCamera, flightCamera]) {
       viewCamera.aspect = viewportWidth / viewportHeight;
       viewCamera.updateProjectionMatrix();
+    }
+    updateOrbitRange();
+    if (viewingDisk) {
+      const scale = framingDistance(dustRadius) / oldDiskDistance;
+      if (fromSun) {
+        orbitPosition.sub(orbitTarget).multiplyScalar(scale).add(orbitTarget);
+      } else {
+        navigationCamera.position.sub(controls.target).multiplyScalar(scale).add(controls.target);
+        controls.update();
+        snapView();
+        return;
+      }
     }
     if (redraw) render();
   }
@@ -528,10 +580,9 @@ async function start() {
     if (fromSun) {
       navigationCamera.position.set(-1, 0, 0);
     } else {
-      const verticalHalfAngle = THREE.MathUtils.degToRad(camera.fov / 2);
-      const horizontalHalfAngle = Math.atan(Math.tan(verticalHalfAngle) * camera.aspect);
-      const distance = extent / Math.sin(Math.min(verticalHalfAngle, horizontalHalfAngle));
-      navigationCamera.position.set(0.30, -0.65, 1).setLength(distance * 1.08);
+      viewingDisk = false;
+      updateOrbitRange();
+      navigationCamera.position.set(0.30, -0.65, 1).setLength(framingDistance(extent));
     }
     controls.target.copy(origin);
     controls.update();
@@ -573,6 +624,17 @@ async function start() {
     flight.start(fromSun ? solarCamera.getWorldDirection(new THREE.Vector3()) : undefined);
     updateExposure();
     render();
+  });
+  diskView.addEventListener('click', () => {
+    if (flying) stopFlight();
+    fromSun = false;
+    viewingDisk = true;
+    setNavigation();
+    updateExposure();
+    controls.target.copy(diskCenter);
+    navigationCamera.position.set(0, -0.42, 1).setLength(framingDistance(dustRadius)).add(diskCenter);
+    controls.update();
+    snapView();
   });
   zoomIn.addEventListener('click', () => zoom(0.8));
   zoomOut.addEventListener('click', () => zoom(1.25));
@@ -627,7 +689,7 @@ async function start() {
   }));
   colorLegend.hidden = false;
   status.hidden = true;
-  for (const input of [zoomIn, zoomOut, reset, sunView, flyView, exposure]) input.disabled = false;
+  for (const input of [zoomIn, zoomOut, reset, sunView, flyView, diskView, exposure]) input.disabled = false;
   for await (const catalog of catalogs) {
     showCatalog(catalog);
     render();
