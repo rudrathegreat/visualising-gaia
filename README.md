@@ -18,7 +18,8 @@ Open [the star map](http://127.0.0.1:8000) in a WebGL 2 browser. In PowerShell, 
 - On touchscreens, drag to pan and pinch to zoom.
 - Focus the map and use the arrow keys to pan. Select **Reset view** to return to the full catalog.
 - Select **View from Sun** to look out from the heliocentric origin. Drag to look around, use Ctrl+arrow keys when the map is focused, or zoom to change the field of view. Select **View from Sun** again to resume the previous orbit view. **Reset view** in this mode looks toward Galactic longitude and latitude 0°.
-- Adjust **Exposure** in either view. Each +1 EV doubles the flux before it is compressed for display.
+- Select **Fly through** to travel from the Sun through the 3D star field. Drag to look around, hold **WASD** to move and **Q/E** to descend or climb. Hold **Shift** to move faster, or use the scroll wheel or **+** and **−** to step forward and backward. **Reset view** returns to the Sun. Select **Fly through** again to return to the previous view.
+- Adjust **Exposure** in any view. Each +1 EV doubles the flux before it is compressed for display.
 
 ## Coordinates
 
@@ -32,7 +33,9 @@ Y = d × cos(b) × sin(l)
 Z = d × sin(b)
 ```
 
-`npm start` generates `stars.bin` from the bundled compressed catalog. To plot another CSV or gzipped CSV with the same three columns, prepare it and start the server directly.
+`npm start` generates `stars.bin` from the bundled compressed catalog and reuses it until the source or converter changes. The generated file stores spatial chunks with precomputed colors, fluxes, and bounds. The viewer displays a preview while the full catalog downloads. It skips chunks outside the camera's view and uses smaller glows for faint stars at any speed.
+
+To plot another CSV or gzipped CSV with the same three columns, prepare it and start the server directly.
 
 ```sh
 python prepare_stars.py my_catalog.csv.gz
@@ -40,6 +43,8 @@ python -m http.server 8000 --bind 127.0.0.1
 ```
 
 The converter reports skipped rows with missing or invalid coordinates or nonpositive parallax.
+
+Older `stars.bin` files still load. Regenerate them with the current converter to enable the streamed preview and spatial chunking.
 
 ## Star colors
 
@@ -53,4 +58,4 @@ The converter uses `phot_g_mean_mag` and the same parallax distance estimate to 
 M_G = phot_g_mean_mag − 5 × log10(d / 10)
 ```
 
-The viewer converts absolute magnitude to relative flux at 10 parsecs and scales it by the inverse square of the distance to the camera. From the Sun this recovers the catalog's observed G magnitude, within the precision of the stored values. Both views compress bright flux for display and use different default exposures to suit their viewing distances. Sources without G photometry use a fixed fallback flux before exposure. Restart with `npm start` to regenerate an older `stars.bin` with magnitude data.
+The generated catalog stores relative flux at 10 parsecs. The viewer scales that flux by the inverse square of the distance to the camera. From the Sun this recovers the catalog's observed G magnitude, within the precision of the stored values. Both views compress bright flux for display and use different default exposures to suit their viewing distances. Sources without G photometry use a fixed fallback flux before exposure.

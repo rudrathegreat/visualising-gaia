@@ -41,8 +41,11 @@
         <span class="orbit-hint">Drag to pan</span>
         <span class="orbit-hint mouse-hint">Right-drag to orbit</span>
         <span class="sun-hint">Drag to look around</span>
-        <span class="mouse-hint">Scroll to zoom</span>
-        <span class="touch-hint">Pinch to zoom</span>
+        <span class="zoom-hint mouse-hint">Scroll to zoom</span>
+        <span class="zoom-hint touch-hint">Pinch to zoom</span>
+        <span class="flight-hint">Drag to look around</span>
+        <span class="flight-desktop-hint">WASD to fly · Q/E down/up · Shift for speed</span>
+        <span class="flight-touch-hint">Use + and − to move</span>
       </p>
       <div class="view-controls">
         <div class="exposure-control">
@@ -52,6 +55,7 @@
         </div>
         <div class="buttons" role="group" aria-label="Camera controls">
           <button id="sun-view" type="button" aria-pressed="false" disabled>View from Sun</button>
+          <button id="fly-view" type="button" aria-pressed="false" disabled>Fly through</button>
           <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out" disabled>−</button>
           <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in" disabled>+</button>
           <button id="reset" type="button" disabled>Reset view</button>
